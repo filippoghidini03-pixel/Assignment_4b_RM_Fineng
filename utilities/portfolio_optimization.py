@@ -47,8 +47,9 @@ def minimum_variance_portfolio(cov_matrix: np.ndarray) -> np.ndarray:
     n = cov_matrix.shape[0]
     ones_vec = np.ones((n, 1))
 
-    min_var_ptf_numerator = None  # !!! COMPLETE AS APPROPRIATE !!!
-    min_var_ptf_weights = None  # !!! COMPLETE AS APPROPRIATE !!!
+    min_var_ptf_numerator = np.linalg .solve(cov_matrix, ones_vec)
+    C = ones_vec.T @ min_var_ptf_numerator  #Useful Param avoiding long expression
+    min_var_ptf_weights = min_var_ptf_numerator/C
 
     return min_var_ptf_weights.flatten()
 
@@ -108,7 +109,17 @@ def mean_variance_portfolio(
             f"risk_aversion must be strictly positive, got {risk_aversion}"
         )
 
-    mean_var_ptf_weights = None  # !!! COMPLETE AS APPROPRIATE !!!
+    #Define Parameters for a much more condensed expression
+    ones_vec = np.ones((expected_returns.shape[0]))
+    aux_vec_1 = np.linalg.solve(cov_matrix, expected_returns)
+    aux_vec_2 = np.linalg.solve(cov_matrix, ones_vec)
+    A = ones_vec.T @ aux_vec_1
+    C = ones_vec.T @ aux_vec_2
+    
+    mean_var_ptf_weights = ( 
+        (1/risk_aversion) * (aux_vec_1) + 
+    (1 - A/risk_aversion) * (aux_vec_2/C) 
+    )
 
     return mean_var_ptf_weights.flatten()
 
@@ -118,7 +129,7 @@ def inverse_volatility_portfolio(covariance: np.ndarray) -> np.ndarray:
     Compute the inverse-volatility (naive risk-parity) portfolio.
 
     Each weight is proportional to the inverse of the asset's volatility,
-    ``w_i ∝ 1 / sigma_i``, with ``sum_i w_i = 1``. Lab notes Question 2 shows
+    w_i ∝ 1 / sigma_i, with sum_i w_i = 1. Lab notes Question 2 shows
     that this coincides with the ERC solution when the assets are uncorrelated.
 
     Parameters:
@@ -129,8 +140,15 @@ def inverse_volatility_portfolio(covariance: np.ndarray) -> np.ndarray:
         np.ndarray: Inverse-volatility weights summing to 1.
     """
 
-    # !!! COMPLETE AS APPROPRIATE !!!
-    pass
+    variances = np.diag(covariance)
+    volatilities = np.sqrt(variances)
+    
+    
+    inv_volatilities = 1.0 / volatilities
+    # Normalize so they sum up to 1 (fully invested portfolio constraint)
+    weights = inv_volatilities / np.sum(inv_volatilities)
+    
+    return weights
 
 
 def erc_objective_function(weights: np.ndarray, covariance: np.ndarray) -> float:
@@ -178,5 +196,47 @@ def equal_risk_contribution_portfolio(
         np.ndarray: Equal risk contribution portfolio.
     """
 
-    # !!! COMPLETE AS APPROPRIATE !!!
-    pass
+    N = covariance.shape[0]
+
+    if initial_solution is None:
+        initial_solution = inverse_volatility_portfolio(covariance)
+    
+    # sum of weigths must be 1, and weights must be between 0 and 1 (long-only portfolio constraint)
+    constraints = {"type": "eq", "fun": lambda w: np.sum(w) - 1.0}
+    bounds = [(0.0, 1.0) for _ in range(N)]
+
+    if options is None:
+        options = {'ftol': 1e-9, 'disp': False}
+    
+    result = minimize(
+        fun=erc_objective_function,  # Using the function we defined previously
+        x0=initial_solution,
+        args=(covariance,),
+        method='SLSQP',
+        bounds=bounds,
+        constraints=constraints,
+        options=options
+    )
+    optimal_weights = result.x
+
+    if not ignore_objective:
+
+        marginal_risk = covariance.dot(optimal_weights)
+        risk_contributions = optimal_weights * marginal_risk
+
+        # Calculate Percentage Contribution to Risk (PCR)
+        total_risk_contribution = np.sum(risk_contributions)
+        pcr = risk_contributions / total_risk_contribution
+        
+        # Target PCR is 1/N for all assets
+        target_pcr = 1.0 / N
+        max_pcr_deviation = np.max(np.abs(pcr - target_pcr))
+
+        if max_pcr_deviation > pcr_tolerance:
+            raise ValueError(
+                f"Optimization failed to converge within PCR tolerance. "
+                f"Max deviation: {max_pcr_deviation:.6f} > {pcr_tolerance}"
+            )
+
+    return optimal_weights
+
