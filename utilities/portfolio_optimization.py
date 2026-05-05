@@ -47,14 +47,9 @@ def minimum_variance_portfolio(cov_matrix: np.ndarray) -> np.ndarray:
     n = cov_matrix.shape[0]
     ones_vec = np.ones((n, 1))
 
-<<<<<<< Updated upstream
     min_var_ptf_numerator = np.linalg .solve(cov_matrix, ones_vec)
     C = ones_vec.T @ min_var_ptf_numerator  #Useful Param avoiding long expression
     min_var_ptf_weights = min_var_ptf_numerator/C
-=======
-    min_var_ptf_numerator = np.linalg.solve(cov_matrix, ones_vec)
-    min_var_ptf_weights = min_var_ptf_numerator / np.sum(min_var_ptf_numerator)
->>>>>>> Stashed changes
 
     return min_var_ptf_weights.flatten()
 
@@ -114,7 +109,6 @@ def mean_variance_portfolio(
             f"risk_aversion must be strictly positive, got {risk_aversion}"
         )
 
-<<<<<<< Updated upstream
     #Define Parameters for a much more condensed expression
     ones_vec = np.ones((expected_returns.shape[0]))
     aux_vec_1 = np.linalg.solve(cov_matrix, expected_returns)
@@ -126,20 +120,7 @@ def mean_variance_portfolio(
         (1/risk_aversion) * (aux_vec_1) + 
     (1 - A/risk_aversion) * (aux_vec_2/C) 
     )
-=======
-    n = cov_matrix.shape[0]
-    ones_vec = np.ones((n, 1))
     
-    # Solve: w = (1/gamma) * Sigma^{-1} * mu - lambda * Sigma^{-1} * 1
-    # Using budget constraint: 1^T * w = 1
-    inv_cov = np.linalg.inv(cov_matrix)
-    numerator = inv_cov @ expected_returns.reshape(-1, 1) / risk_aversion
-    denominator_part1 = (ones_vec.T @ inv_cov @ expected_returns.reshape(-1, 1) / risk_aversion).item()
-    denominator_part2 = ones_vec.T @ inv_cov @ ones_vec
-    
-    mean_var_ptf_weights = numerator - (ones_vec @ (np.array([[denominator_part1]]) / denominator_part2))
->>>>>>> Stashed changes
-
     return mean_var_ptf_weights.flatten()
 
 
@@ -159,7 +140,6 @@ def inverse_volatility_portfolio(covariance: np.ndarray) -> np.ndarray:
         np.ndarray: Inverse-volatility weights summing to 1.
     """
 
-<<<<<<< Updated upstream
     variances = np.diag(covariance)
     volatilities = np.sqrt(variances)
     
@@ -167,21 +147,6 @@ def inverse_volatility_portfolio(covariance: np.ndarray) -> np.ndarray:
     inv_volatilities = 1.0 / volatilities
     # Normalize so they sum up to 1 (fully invested portfolio constraint)
     weights = inv_volatilities / np.sum(inv_volatilities)
-=======
-    covariance = np.asarray(covariance, dtype=float)
-    
-    # Extract diagonal elements (variances)
-    variances = np.diag(covariance)
-    
-    # Compute volatilities (standard deviations)
-    volatilities = np.sqrt(variances)
-    
-    # Weights proportional to inverse volatility
-    weights = 1.0 / volatilities
-    
-    # Normalize so weights sum to 1
-    weights = weights / np.sum(weights)
->>>>>>> Stashed changes
     
     return weights
 
@@ -231,7 +196,6 @@ def equal_risk_contribution_portfolio(
         np.ndarray: Equal risk contribution portfolio.
     """
 
-<<<<<<< Updated upstream
     N = covariance.shape[0]
 
     if initial_solution is None:
@@ -276,36 +240,3 @@ def equal_risk_contribution_portfolio(
 
     return optimal_weights
 
-=======
-    covariance = np.asarray(covariance, dtype=float)
-    n = covariance.shape[0]
-    
-    # Use inverse-volatility portfolio as initial solution if not provided
-    if initial_solution is None:
-        initial_solution = inverse_volatility_portfolio(covariance)
-    
-    initial_solution = np.asarray(initial_solution, dtype=float).flatten()
-    
-    if options is None:
-        options = {}
-    
-    # Constraints: weights sum to 1, all weights >= 0
-    constraints = (
-        {"type": "eq", "fun": lambda w: np.sum(w) - 1},
-    )
-    
-    bounds = tuple((0, 1) for _ in range(n))
-    
-    # Optimize using the ERC objective function
-    result = minimize(
-        fun=erc_objective_function,
-        x0=initial_solution,
-        args=(covariance,),
-        method="SLSQP",
-        bounds=bounds,
-        constraints=constraints,
-        options=options,
-    )
-    
-    return result.x
->>>>>>> Stashed changes
