@@ -1,4 +1,5 @@
 import math
+import heapq
 import numpy as np
 import pandas as pd
 import scipy.cluster.hierarchy as sch
@@ -24,7 +25,9 @@ def correlation_to_hrp_distance(correlation: np.ndarray) -> np.ndarray:
     """
 
     correlation = np.clip(correlation, -1.0, 1.0)
-    return np.sqrt(2 * (1.0 + correlation))
+
+    # Error: return np.sqrt(2 * (1.0 + correlation))
+    return np.sqrt(0.5 * (1.0 - correlation))
 
 
 def flatten_list(lst: List[Any]) -> List[Any]:
@@ -67,6 +70,11 @@ def list_recursive_bisection(
     """
     Perform a recursive bisection of a list.
 
+    Splits the list in two halves at every level of recursion, building a
+    binary nested-list tree.  Splitting stops either when a sublist has at
+    most one element (leaf) or when max_iter bisection levels have been
+    performed.
+
     Parameters:
         lst (List[Any]): The original list to be bisected.
         labels (List[Any] | None): Labels, default to None.
@@ -77,8 +85,39 @@ def list_recursive_bisection(
         list: A nested list representing the recursive bisection.
     """
 
-    # !!! COMPLETE AS APPROPRIATE !!!
-    pass
+    # Algorithm:
+    #   • If the list has ≤ 1 element it is already a leaf — return it unchanged
+    #     (scalar, not wrapped in a list, so top_down_allocation treats it as a
+    #     terminal node via is_nested → False).
+    #   • If we have reached max_iter bisection levels, return the remaining
+    #     sublist flat so that the sub-cluster is treated as a single block.
+    #   • Otherwise split at the midpoint and recurse on each half, incrementing
+    #     cur_iter to track depth.
+    
+    if cur_iter is None:
+        cur_iter = 0
+
+    # Base case 1: single element — return the element itself (leaf node)
+    if len(lst) == 1:
+        return lst[0]
+
+    # Base case 2: empty list (defensive)
+    if len(lst) == 0:
+        return lst
+
+    # Base case 3: iteration limit reached — return remaining items as a flat cluster
+    if max_iter is not None and cur_iter >= max_iter:
+        return lst
+
+    # Recursive case: split at the midpoint and recurse on each half
+    mid = len(lst) // 2
+    left_half = lst[:mid]
+    right_half = lst[mid:]
+
+    return [
+        list_recursive_bisection(left_half, labels, cur_iter + 1, max_iter),
+        list_recursive_bisection(right_half, labels, cur_iter + 1, max_iter),
+    ]
 
 
 def recursive_bisection(
@@ -88,6 +127,10 @@ def recursive_bisection(
 ) -> List[Any]:
     """
     Return the nested cluster structure from a linkage matrix performing a recursive bisection.
+
+    Reads the leaf order from the dendrogram (which quasi-diagonalises the
+    correlation matrix) and then bisects that ordered list regardless of the
+    actual tree hierarchy, following Lopez de Prado's original HRP algorithm.
 
     Parameters:
         linkage_matrix (pd.DataFrame): Linkage matrix.
@@ -108,12 +151,19 @@ def recursive_bisection(
         else:
             iter_num = int(iter_num)
 
+    # Extract the dendrogram leaf order: this is the quasi-diagonalised asset ordering
     leaves_lst = sch.leaves_list(linkage_matrix.values)
     leaves_labels = (
         list(leaves_lst) if labels is None else [labels[leaf] for leaf in leaves_lst]
     )
 
-    return  #!!! COMPLETE AS APPROPRIATE !!!
+    
+    # Previously: `return  #!!! COMPLETE AS APPROPRIATE !!!`
+    # We now bisect the ordered leaf list recursively, optionally up to
+    # iter_num = log2(clusters_num) levels deep so that the resulting tree has
+    # exactly clusters_num leaf groups.
+    
+    return list_recursive_bisection(leaves_labels, labels=labels, max_iter=iter_num)
 
 
 def dendrogram_iteration(
@@ -121,6 +171,7 @@ def dendrogram_iteration(
     labels: List[Any] | None = None,
     clusters_num: int | None = None,
 ) -> List[Any]:
+
     """
     Convert a linkage matrix to nested clusters according to the dendrogram structure.
 
@@ -134,9 +185,33 @@ def dendrogram_iteration(
         List[Any]: Nested clusters.
     """
 
-    # !!! COMPLETE AS APPROPRIATE !!!
-    pass
+    Z = linkage_matrix.values  
 
+    # ── Helper: convert a ClusterNode to a nested list ──────────────────────
+    def node_to_nested(node) -> Any:
+        if node.is_leaf():
+            return labels[node.id] if labels is not None else node.id
+        return [node_to_nested(node.left), node_to_nested(node.right)]
+
+    root = sch.to_tree(Z)  
+
+    if clusters_num is None:
+        # Full binary tree — used directly by top_down_allocation
+        return node_to_nested(root)
+
+    # ── Flat clustering for Rand-index analysis ──────────────────────────────
+    # fcluster with criterion='maxclust' cuts the tree so that at most
+    # clusters_num clusters are formed, splitting on largest merge distances first.
+    # This replaces the manual heap entirely.
+    cluster_ids = sch.fcluster(Z, t=clusters_num, criterion="maxclust")
+
+    from collections import defaultdict
+    groups: dict[int, list] = defaultdict(list)
+    for leaf_idx, cluster_id in enumerate(cluster_ids):
+        label = labels[leaf_idx] if labels is not None else leaf_idx
+        groups[cluster_id].append(label)
+
+    return list(groups.values())
 
 def top_down_allocation(
     nested_clusters: List[Any], covariance: pd.DataFrame, get_cluster_var: Callable
@@ -170,9 +245,20 @@ def top_down_allocation(
         cluster1_var = get_cluster_var(covariance=covariance, cluster=cluster1)
         cluster2_var = get_cluster_var(covariance=covariance, cluster=cluster2)
 
-        # Inverse volatility between clusters
-        alpha1 = cluster2_var * (cluster1_var + cluster2_var)
-        alpha2 = 1 + alpha1
+        # Previously:
+        #   alpha1 = cluster2_var * (cluster1_var + cluster2_var)   ← multiply, not divide
+        #   alpha2 = 1 + alpha1                                      ← should be 1 - alpha1
+        #
+        # The correct inverse-variance split (Lopez de Prado, 2016):
+        #   alpha = 1 - sigma²_L / (sigma²_L + sigma²_R)
+        #         = sigma²_R / (sigma²_L + sigma²_R)
+        # allocates MORE weight to the LOWER-variance sub-cluster.
+        # alpha1 is the factor for cluster1 (left), alpha2 for cluster2 (right).
+        # They must sum to 1 so that weights are preserved.
+        
+        total_var = cluster1_var + cluster2_var
+        alpha1 = cluster2_var / total_var   # left cluster gets the right cluster's share
+        alpha2 = cluster1_var / total_var   # right cluster gets the left cluster's share (= 1 - alpha1)
 
         weights[cluster1] *= alpha1 * top_down_allocation(
             nested_clusters[0], covariance.loc[cluster1, cluster1], get_cluster_var
