@@ -25,7 +25,7 @@ def _align_portfolios_and_returns(
     aligned_portfolios = (
         portfolios.loc[:, overlapping_assets]
         .reindex(returns.index)
-        .bfill()
+        .ffill()                   #ERROR: from bfill to ffill
         .shift()
         .dropna(axis=0, how="all")
     )
@@ -65,9 +65,18 @@ def portfolio_returns(
     gross_returns = aligned_portfolios.multiply(aligned_returns).sum(axis=1)
 
     if transaction_costs != 0.0:
-        pass  # !!! COMPLETE AS APPROPRIATE !!!
 
-    return gross_returns
+        weight_deltas = aligned_portfolios.diff().fillna(aligned_portfolios)
+        daily_turnover = weight_deltas.abs().sum(axis=1)
+
+        # Now we comoute the net returns
+        daily_costs = daily_turnover * transaction_costs
+        net_returns = gross_returns - daily_costs
+
+    else:
+        net_returns = gross_returns
+
+    return net_returns
 
 
 def backtest(

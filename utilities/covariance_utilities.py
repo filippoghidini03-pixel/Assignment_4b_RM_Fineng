@@ -116,8 +116,19 @@ def covariance_to_correlation(
         ValueError: If any asset has zero or negative variance, or if matrix contains NaN/Inf
     """
 
-    # !!! COMPLETE AS APPROPRIATE !!!
-    pass
+    variances = np.diag(covariance)
+    std_devs = np.sqrt(variances)
+
+    # Vectorized
+    correlation = covariance / np.outer(std_devs, std_devs)
+
+    # Numerical stability safeguards
+    correlation = np.clip(correlation, -1.0, 1.0)
+    # Ensure the main diagonal is exactly 1.0
+    np.fill_diagonal(correlation, 1.0)
+
+    return correlation
+
 
 
 def risk_contribution(portfolios: np.ndarray, cov: np.ndarray) -> np.ndarray:
@@ -136,5 +147,22 @@ def risk_contribution(portfolios: np.ndarray, cov: np.ndarray) -> np.ndarray:
         ValueError: If dimensions don't match or inputs contain NaN/Inf
     """
 
-    # !!! COMPLETE AS APPROPRIATE !!!
-    pass
+    if not np.isfinite(portfolios).all() or not np.isfinite(cov).all():
+        raise ValueError("Inputs contain NaN or Inf values.")
+    
+    p, n = portfolios.shape
+    if cov.shape != (n, n):
+        raise ValueError(f"Dimension mismatch: portfolios have {n} assets, but cov matrix is {cov.shape}.")
+    
+    cov_projection = portfolios @ cov
+
+    port_variances = np.sum(portfolios * cov_projection, axis=1)
+    port_volatilities = np.sqrt(port_variances)
+
+    # Numpy broadcasting to compute  MRC
+    mrc = cov_projection / port_volatilities[:, np.newaxis]
+
+    # Numpy broadcasting to compute RC
+    rc = portfolios * mrc
+
+    return rc

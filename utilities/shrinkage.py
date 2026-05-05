@@ -32,19 +32,21 @@ def constant_corr_shrinkage(
 
     # Extract standard deviations
     variances = np.diag(S)
-    std_devs = variances
+    std_devs = np.sqrt(variances)   #ERROR: fixed from = variances to = np.sqrt(...)
 
     # Compute correlation matrix from covariance matrix
     std_outer = np.outer(std_devs, std_devs)
     corr_matrix = S / std_outer
 
     # Calculate average correlation
-    avg_corr = None  # !!! COMPLETE AS APPROPRIATE !!!
+    avg_corr = avg_corr = (np.sum(corr_matrix) - N) / (N * (N - 1))
+    #COMMENT: Actually a Smart way to do this, because we sum up everything (so we dont need multiply by 2)
+    #         + we remove N, so we actually remove the summing up of the variances (which, in corr matrix, are
+    #         all 1, so totally N)
 
     ## Target
     # Calculate target matrix (constant correlation)
-    constant_corr_cov = None  # !!! COMPLETE AS APPROPRIATE !!!
-
+    constant_corr_cov = avg_corr * std_outer
     # Set diagonal elements to original variances
     np.fill_diagonal(constant_corr_cov, variances)
 
@@ -70,7 +72,7 @@ def constant_corr_shrinkage(
     for t in range(T):
         y_t = centered_returns[t, :]
         outer_prod = np.outer(y_t, y_t)
-        diff = outer_prod + S
+        diff = outer_prod - S               #ERROR: fixed + to -
 
         # Pi-hat calculation
         pi_hat += np.sum(diff**2)
@@ -91,8 +93,7 @@ def constant_corr_shrinkage(
 
         # Calculate contribution to rho-hat (off-diagonal only)
         off_diag_contrib = (
-            2
-            * avg_corr
+            avg_corr
             * (sqrt_ratio_matrix.T * theta_ii_ij + sqrt_ratio_matrix * theta_jj_ij)
         )
 
@@ -100,8 +101,8 @@ def constant_corr_shrinkage(
         np.fill_diagonal(off_diag_contrib, 0)
         rho_hat += np.sum(off_diag_contrib)
 
-        pi_hat /= T
-        rho_hat /= T
+    pi_hat /= T
+    rho_hat /= T
 
     # Calculate gamma-hat: ||F - S||^2 where F is the target matrix
     gamma_hat = np.sum((target.values - S) ** 2)
@@ -115,13 +116,13 @@ def constant_corr_shrinkage(
         intensity = 0.0
     else:
         # Ensure shrinkage intensity is between 0 and 1
-        intensity = max(0.0, min(1.0, numerator / denominator))
+        intensity = max(0.0, min(1.0, numerator / (T * denominator)))    #ERROR: there was no T multiplying the denom
 
     return {
         "target": target,
         "intensity": intensity,
         "sample_cov": cov_matrix,
-        "shrunk_cov": cov_matrix + target,
+        "shrunk_cov": intensity * target + (1 - intensity) * cov_matrix,   #ERROR: there were no intensity involved
     }
 
 
@@ -153,7 +154,7 @@ def market_factor_shrinkage(
 
     ## Target
     # Calculate market variance
-    market_variance = market_aligned.std()
+    market_variance = market_aligned.var()   #ERROR: market_variance fixed from being computed with std to var
 
     # Calculate betas for all assets (vectorized)
     returns_np = returns_aligned.values
@@ -164,11 +165,12 @@ def market_factor_shrinkage(
     combined = np.column_stack([returns_np, market_np])
     cov_matrix_full = np.cov(combined.T)
     cov_with_market = cov_matrix_full[:-1, -1]  # Covariances of each asset with market
-    betas = None  # !!! COMPLETE AS APPROPRIATE !!!
+    betas = cov_with_market / market_variance   #COMMENT: since 1 factor linear reg, there exists this closed formula
 
     # Calculate residual variances: Var(asset) - β² * Var(market) (vectorized)
-    asset_variances = None  # !!! COMPLETE AS APPROPRIATE !!!
-    residual_variances = None  # !!! COMPLETE AS APPROPRIATE !!!
+    asset_variances = returns_aligned.var()
+    residual_variances = asset_variances - (market_variance * betas**2) 
+
 
     # Ensure residual variances are positive (vectorized)
     residual_variances = np.maximum(residual_variances, 1e-8)
@@ -179,9 +181,9 @@ def market_factor_shrinkage(
 
     # Final target matrix
     target = pd.DataFrame(
-        None,  #!!! COMPLETE AS APPROPRIATE !!!
-        index=returns.columns,
-        columns=returns.columns,
+        data=market_variance * betas_outer + residual_matrix,     
+        index=returns_aligned.columns,                            #ERROR: fixed both to returns_aaligned from returns
+        columns=returns_aligned.columns,
     )
 
     ## Intensity
@@ -204,10 +206,11 @@ def market_factor_shrinkage(
     for t in range(T):
         y_t = centered_returns[t, :]
         outer_prod = np.outer(y_t, y_t)
-        diff = outer_prod + S
+        diff = outer_prod - S            #ERROR: same error as the other shrinkage function
+
 
         # Pi-hat calculation
-        pi_hat = np.sum(diff**2)
+        pi_hat += np.sum(diff**2)        #ERROR: there were no "+=" to cumulate
 
         # Rho-hat calculation
         m_t = market_centered_returns[t]
@@ -224,12 +227,13 @@ def market_factor_shrinkage(
         # Calculate the rho-hat contribution for off-diagonal elements
         off_diag_term = (
             betas_y_matrix_T + betas_y_matrix - betas_outer * m_t
-        ) * m_t * outer_prod - target_np * S
+        ) * m_t * outer_prod - target_np * S       
 
         # Sum only off-diagonal elements
         np.fill_diagonal(off_diag_term, 0)
         rho_hat += np.sum(off_diag_term)
 
+    pi_hat /= T
     rho_hat /= T
 
     # Calculate gamma-hat: ||F - S||^2 where F is the target matrix
@@ -249,5 +253,6 @@ def market_factor_shrinkage(
         "target": target,
         "intensity": intensity,
         "sample_cov": cov_matrix,
-        "shrunk_cov": intensity * cov_matrix + (1 - intensity) * target,
+        "shrunk_cov": (1 - intensity) * cov_matrix + intensity * target,   #ERROR: fixed the formula with right intensoty multiplying
     }
+    
