@@ -153,24 +153,20 @@ def inverse_volatility_portfolio(covariance: np.ndarray) -> np.ndarray:
 
 def erc_objective_function(weights: np.ndarray, covariance: np.ndarray) -> float:
     """
-    Equal risk contribution objective function implemented as the variance of the risk
-    contributions. Minimizing this function leads to equal risk contributions across assets.
-
-    Parameters:
-        weights (np.ndarray): Portfolio weights.
-        covariance (np.ndarray): Covariance matrix of asset returns.
-
-    Returns:
-        float: Objective function value.
+    Equal risk contribution objective function using the Maillard (2010) log-barrier approach:
+    f(x) = 0.5 * x.T @ Sigma @ x - sum(log(x_i))
+    
+    The weights here correspond to 'x' before normalization.
     """
+    # Safeguard against non-positive weights for log calculation
+    if np.any(weights <= 0):
+        return np.inf
+    
+    return 0.5 * weights.T @ covariance @ weights - np.sum(np.log(weights))
 
-    non_normalized_risk_contributions = (
-        np.multiply(weights.dot(covariance), weights)
-    ).reshape(-1, 1)
-
-    return len(non_normalized_risk_contributions) * np.sum(
-        np.square(non_normalized_risk_contributions)
-    ) - np.sum(non_normalized_risk_contributions @ non_normalized_risk_contributions.T)
+def erc_gradient(weights: np.ndarray, covariance: np.ndarray) -> np.ndarray:
+    """Gradient of the Maillard objective function: Sigma @ x - 1/x."""
+    return covariance @ weights - 1.0 / weights
 
 
 def equal_risk_contribution_portfolio(
@@ -199,25 +195,26 @@ def equal_risk_contribution_portfolio(
     N = covariance.shape[0]
 
     if initial_solution is None:
-        initial_solution = inverse_volatility_portfolio(covariance)
+        initial_solution = np.ones(N) / N
     
-    # sum of weigths must be 1, and weights must be between 0 and 1 (long-only portfolio constraint)
-    constraints = {"type": "eq", "fun": lambda w: np.sum(w) - 1.0}
-    bounds = [(0.0, 1.0) for _ in range(N)]
+    # We solve the unconstrained (except x > 0) problem using L-BFGS-B
+    bounds = [(1e-10, None) for _ in range(N)]
 
     if options is None:
-        options = {'ftol': 1e-9, 'disp': False}
+        options = {'ftol': 1e-12, 'disp': False}
     
     result = minimize(
-        fun=erc_objective_function,  # Using the function we defined previously
+        fun=erc_objective_function,
         x0=initial_solution,
         args=(covariance,),
-        method='SLSQP',
+        jac=erc_gradient,
+        method='L-BFGS-B',
         bounds=bounds,
-        constraints=constraints,
         options=options
     )
-    optimal_weights = result.x
+    
+    # Maillard result must be normalized to get weights summing to 1
+    optimal_weights = result.x / np.sum(result.x)
 
     if not ignore_objective:
 

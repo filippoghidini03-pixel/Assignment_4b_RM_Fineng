@@ -115,8 +115,7 @@ def constant_corr_shrinkage(
     if denominator == 0:
         intensity = 0.0
     else:
-        # Ensure shrinkage intensity is between 0 and 1
-        intensity = max(0.0, min(1.0, numerator / (T * denominator)))    #ERROR: there was no T multiplying the denom
+        intensity = max(0.0, min(1.0, numerator / denominator))
 
     return {
         "target": target,
@@ -247,7 +246,7 @@ def market_factor_shrinkage(
     if denominator == 0:
         intensity = 0.0
     else:
-        intensity = max(0.0, min(1.0, numerator / (T * denominator)))
+        intensity = max(0.0, min(1.0, numerator / denominator))
 
     return {
         "target": target,
