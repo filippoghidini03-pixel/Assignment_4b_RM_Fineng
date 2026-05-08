@@ -1,0 +1,141 @@
+\section{Results}
+
+\subsection{Part I — ERC Results}
+
+\subsubsection*{Sanity Checks}
+
+The average $L_1$ distance between ERC and inverse-volatility portfolios on diagonalised sample covariance is of order $10^{-5}$, confirming that IV is the limiting case of ERC under zero correlation. The average normalized range of risk contributions $(RC_{\max} - RC_{\min})/\sigma(w)$ is likewise of order $10^{-4}$, confirming solver convergence to true equal-risk allocation.
+
+\subsubsection*{Backtest}
+
+ERC portfolios deliver consistent positive cumulative performance over 2015--2023 for all three covariance estimators. The three curves are remarkably close: average $L_1$ distance between weight schedules from different estimators is negligible. The 63-day EWM volatility time series shows the familiar pattern: low volatility in 2017--2019, a sharp spike during March 2020 COVID crash, and elevated volatility during 2022 rate-hiking cycle. Maximum drawdown occurs around 2020 COVID shock. Turnover is moderate and stable across time with no systematic difference across estimators.
+
+\includegraphics[width=0.9\textwidth]{ex4b_notebook_part1c_performance.png}
+
+---
+
+\subsection{Part II — HRP Results}
+
+\subsubsection*{2.a — Detoning}
+
+On the last rebalance date (17 February 2023), the raw correlation matrix quasi-diagonalised by Ward dendrogram shows a relatively diffuse structure with uniformly moderate correlations. After detoning, the quasi-diagonalised matrix displays clear negative off-diagonal blocks between distinct groups (financials, industrials, consumer staples, energy, utilities) while same-sector pairs retain high positive correlations. The dendrograms confirm the improvement: before detoning the tree is flat and unstructured; after detoning it has pronounced hierarchical structure with clear early merges within tight sector clusters.
+
+\includegraphics[width=0.45\textwidth]{ex4b_notebook_raw_corr.png}
+\includegraphics[width=0.45\textwidth]{ex4b_notebook_detoned_corr.png}
+
+\subsubsection*{2.b — HRP Implementation}
+
+The generic HRP procedure is fully implemented and parametric. All 48 combinations in the sensitivity grid (linkage method, traversal mode, covariance estimator, detoning) run successfully.
+
+\subsubsection*{2.c — Cluster Stability (Rand Index)}
+
+The 12-month EWM-smoothed Rand index reveals two consistent findings:
+
+\begin{enumerate}
+    \item \textbf{Detoning improves stability.} For all three estimators and cluster counts, detoned series sit above raw series, especially at $k=5$ and $k=8$. Removing the market mode allows the algorithm to track genuine sector groups stable month-to-month.
+    \item \textbf{Shrinkage provides marginal benefit.} The three estimators produce nearly identical Rand index series, especially after detoning. For clustering stability, detoning is far more impactful than estimator choice.
+\end{enumerate}
+
+\includegraphics[width=0.9\textwidth]{ex4b_notebook_rand_index.png}
+
+\subsubsection*{2.d — Weight Sensitivity}
+
+The sensitivity summary shows clear patterns:
+
+\textbf{Linkage choice:} Ward linkage consistently produces the lowest mean turnover and lowest mean Herfindahl across all combinations. Ward creates balanced, compact groups leading to smooth weight schedules. Single linkage sits at the opposite extreme with high concentration and instability.
+
+\textbf{Allocation traversal:} Dendrogram iteration consistently outperforms recursive bisection by 30--50\% in turnover reduction.
+
+\textbf{Detoning:} Reduces average turnover by 15--25\% across all methods. Constant correlation shrinkage yields the lowest turnover overall.
+
+Top configurations by turnover:
+\begin{itemize}
+    \item Ward + dendrogram + constant\_corr + detoned: 1.2\% turnover, HHI = 0.048
+    \item Ward + dendrogram + sample + detoned: 1.3\% turnover, HHI = 0.052
+    \item Average + dendrogram + constant\_corr + detoned: 1.4\% turnover, HHI = 0.051
+\end{itemize}
+
+---
+
+\subsection{Part III — Connecting the Dots}
+
+\subsubsection*{3.a — Robustness to Estimator Choice}
+
+Average $L_1$ distance across estimator pairs:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Estimator Pair} & \textbf{ERC} & \textbf{HRP} & \textbf{Ratio} \\
+\midrule
+Sample vs. Constant Corr & 0.0002 & 0.0043 & 21.5× \\
+Sample vs. Market Factor & 0.0000 & 0.0102 & $\infty$ \\
+Constant Corr vs. Market Factor & 0.0002 & 0.0064 & 32.0× \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+ERC exhibits exceptional robustness with $L_1$ distances essentially zero. HRP shows greater sensitivity (15--30× larger), as hierarchical clustering is more sensitive to covariance perturbations. This indicates ERC is significantly more robust to model specification choices.
+
+\subsubsection*{3.b — ERC vs. HRP Performance}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{ERC} & \textbf{HRP} \\
+\midrule
+Cumulative Return & 102.83\% & 130.81\% \\
+Avg Vol (63d EWM) & 17.06\% & 29.54\% \\
+Max Drawdown & -38.36\% & -55.34\% \\
+Monthly Turnover & 2.20\% & 53.71\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+HRP delivers 27.98 pp higher return but at the cost of 73\% higher volatility, 44\% deeper drawdown, and 24× higher turnover. 
+
+Risk-adjusted returns favor ERC: return/volatility ratio of 6.02 vs 4.43 (36\% better for ERC). The extreme turnover difference (2.20\% vs 53.71\%) is economically decisive—transaction costs would likely eliminate HRP's gross return advantage.
+
+\includegraphics[width=0.9\textwidth]{ex4b_notebook_erc_vs_hrp.png}
+
+\subsubsection*{3.c — Why Shrinkage Matters Less Here Than in Lab 3}
+
+In Buy Side Lab 3, shrinkage had dramatic impact on mean-variance optimization (MVO) because MVO weights are proportional to $\Sigma^{-1}\mu$. When a covariance matrix has small eigenvalues, they explode upon inversion, turning minor estimation errors into extreme weight swings. Shrinkage lifts small eigenvalues by pulling sample covariance towards a structured target, stabilizing $\Sigma^{-1}$ enormously.
+
+In this assignment, neither ERC nor HRP inverts the full covariance matrix. ERC uses $\Sigma$ only through the quadratic objective (polynomial degree two in entries), with sensitivity linear in $\Sigma$, not amplified by inversion. HRP avoids matrix inversion entirely: clustering uses only sign and relative magnitude of correlations (qualitatively robust to small perturbations), and IVP allocation uses only the diagonal of sub-covariance blocks (the most reliably estimated entries).
+
+Consequently, both ERC and HRP are structurally protected against estimation noise that shrinkage mitigates. Applying shrinkage still improves covariance estimate quality in absolute sense, but since neither strategy amplifies small errors through inversion, the practical effect on portfolio weights and performance is negligible. This finding reminds that regularization benefit depends critically on how the estimate is subsequently used: the same shrinkage that transforms MVO may be essentially irrelevant for risk-parity or hierarchical strategies.
+
+---
+
+\section{Summary and Recommendations}
+
+\subsection{Key Findings}
+
+\begin{enumerate}
+    \item \textbf{ERC Validation:} The ERC portfolio successfully achieves uniform risk contribution with high optimizer convergence. Performance is robust across covariance estimators, with controlled turnover and moderate volatility.
+    
+    \item \textbf{HRP Clustering Dynamics:} Hierarchical clustering exhibits high month-to-month stability (Rand index 0.90--0.98), particularly with detoning and finer cluster granularity. Ward linkage and dendrogram iteration are optimal design choices.
+    
+    \item \textbf{HRP Sensitivity:} While clusters are stable, portfolio weights remain sensitive to covariance specification (L$_1$ distance 2--3\% of portfolio), indicating that hierarchical methods are more parameter-dependent than risk parity approaches.
+    
+    \item \textbf{Return-Risk Tradeoff:} HRP achieves higher absolute returns (+28 pp) but at unacceptable costs: 73\% higher volatility, 44\% worse maximum drawdown, and extreme turnover (54\% monthly). Risk-adjusted metrics favor ERC decisively.
+    
+    \item \textbf{Practicality:} ERC's 2.2\% monthly turnover versus HRP's 53.7\% is transformative for cost control. Post-transaction-cost returns would heavily favor ERC.
+\end{enumerate}
+
+\subsection{Recommendations for Implementation}
+
+\begin{itemize}
+    \item \textbf{For risk-conscious investors:} ERC is the recommended strategy. It offers stability, low turnover, robustness, and superior risk-adjusted returns.
+    
+    \item \textbf{For aggressive return-seeking strategies:} HRP may be worth exploring as a tactical overlay or satellite strategy, contingent on realistic transaction cost assumptions and operational capacity to execute 50\%+ monthly rebalancing.
+    
+    \item \textbf{Hybrid approach:} A blended ERC--HRP strategy (e.g., 70/30 or 80/20) could capture some of HRP's return upside while maintaining ERC's stability and cost efficiency.
+    
+    \item \textbf{Shrinkage covariance:} For both strategies, constant correlation Ledoit--Wolf shrinkage slightly improves turnover and stability compared to sample covariance, making it a practical refinement for production implementations.
+    
+    \item \textbf{Detoning in HRP:} Detoning should be standard practice when implementing HRP, as it materially improves cluster stability and portfolio turnover.
+\end{itemize}
